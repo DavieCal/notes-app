@@ -5,14 +5,15 @@ import ActionsView from './components/ActionsView'
 import ReportView from './components/ReportView'
 import ListView from './components/ListView'
 import SettingsView from './components/SettingsView'
+import NotepadIcon from './components/icons/NotepadIcon'
 
 const TABS = [
-  { id: 'capture', label: '🎤', title: 'Capture' },
-  { id: 'notes', label: '📝', title: 'Notes' },
-  { id: 'lists', label: '☑', title: 'Lists' },
-  { id: 'actions', label: '✓', title: 'Actions' },
-  { id: 'reports', label: '📊', title: 'Reports' },
-  { id: 'settings', label: '⚙', title: 'Settings' },
+  { id: 'capture', label: '🎤',         title: 'Capture' },
+  { id: 'notes',   icon: NotepadIcon,   title: 'Notes' },
+  { id: 'lists',   label: '☑',          title: 'Lists' },
+  { id: 'actions', label: '✓',          title: 'Actions' },
+  { id: 'reports', label: '📊',         title: 'Reports' },
+  { id: 'settings',label: '⚙',         title: 'Settings' },
 ]
 
 export default function App() {
@@ -43,7 +44,9 @@ export default function App() {
             style={{ ...styles.navBtn, color: tab === t.id ? '#4f9cf9' : '#666' }}
             onClick={() => setTab(t.id)}
           >
-            <span style={styles.navIcon}>{t.label}</span>
+            <span style={styles.navIcon}>
+              {t.icon ? <t.icon size={22} /> : t.label}
+            </span>
             <span style={styles.navLabel}>{t.title}</span>
           </button>
         ))}
