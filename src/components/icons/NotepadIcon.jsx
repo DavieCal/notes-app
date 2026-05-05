@@ -10,16 +10,14 @@ export default function NotepadIcon({ size = 24 }) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {/* Spiral binding holes */}
-      <circle cx="8"  cy="3" r="1" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="3" r="1" fill="currentColor" stroke="none" />
-      <circle cx="16" cy="3" r="1" fill="currentColor" stroke="none" />
       {/* Notepad body */}
-      <rect x="3" y="3" width="18" height="19" rx="2" />
+      <rect x="4" y="3" width="16" height="18" rx="2" fill="none" />
+      {/* Spiral binding marks at top */}
+      <path d="M9 3v3M15 3v3" stroke="currentColor" fill="none" />
       {/* Ruled lines */}
-      <line x1="7" y1="9"  x2="17" y2="9"  />
-      <line x1="7" y1="13" x2="17" y2="13" />
-      <line x1="7" y1="17" x2="13" y2="17" />
+      <line x1="8" y1="11" x2="16" y2="11" />
+      <line x1="8" y1="15" x2="16" y2="15" />
+      <line x1="8" y1="19" x2="13" y2="19" />
     </svg>
   )
 }
