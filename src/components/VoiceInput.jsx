@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition'
-import { classifyNote } from '../lib/claude'
+import { classifyNote, analyzeImageNote } from '../lib/claude'
 import { saveNote, saveActions, getCategories, addCategory, deleteCategory, createList, findListByName, addListItem } from '../lib/db'
 
 function parseCategoryCommand(text) {
@@ -14,13 +14,42 @@ function parseCategoryCommand(text) {
 
 function parseListCommand(text) {
   const t = text.toLowerCase().trim()
-  // "start a grocery list" / "create shopping list" / "new car maintenance list"
   const create = t.match(/^(?:start|create|new|make)(?:\s+a(?:\s+new)?)?\s+(.+?)\s+list$/)
   if (create) return { type: 'create', listName: create[1].trim() }
-  // "add milk to grocery list" / "add milk to my shopping list" / "add milk to the car list"
   const addItem = t.match(/^add\s+(.+?)\s+to\s+(?:my\s+|the\s+)?(.+?)\s+list$/)
   if (addItem) return { type: 'addItem', item: addItem[1].trim(), listName: addItem[2].trim() }
   return null
+}
+
+function resizeImage(file, maxSize = 1568) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      let { width, height } = img
+      if (width > maxSize || height > maxSize) {
+        if (width > height) { height = Math.round(height * maxSize / width); width = maxSize }
+        else { width = Math.round(width * maxSize / height); height = maxSize }
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1])
+    }
+    img.onerror = reject
+    img.src = url
+  })
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result.split(',')[1])
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsChanged }) {
@@ -28,10 +57,54 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
   const [processing, setProcessing] = useState(false)
   const [preview, setPreview] = useState(null)
   const [categories, setCategories] = useState([])
+  const [imagePreview, setImagePreview] = useState(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [imageClassification, setImageClassification] = useState(null)
+  const cameraInputRef = useRef(null)
+  const uploadInputRef = useRef(null)
 
   useEffect(() => {
     getCategories().then(setCategories)
   }, [])
+
+  function clearImage() {
+    if (imagePreview?.url) URL.revokeObjectURL(imagePreview.url)
+    setImagePreview(null)
+    setImageClassification(null)
+  }
+
+  function handleReset() {
+    clearImage()
+    reset()
+  }
+
+  async function handleFileSelected(file, inputEl) {
+    if (!file) return
+    if (inputEl) inputEl.value = ''
+    const isPdf = file.type === 'application/pdf'
+    if (imagePreview?.url) URL.revokeObjectURL(imagePreview.url)
+    setImagePreview({ url: isPdf ? null : URL.createObjectURL(file), name: file.name, isPdf })
+    setImageClassification(null)
+    setAnalyzing(true)
+    reset()
+
+    try {
+      let base64Data, mimeType = file.type
+      if (isPdf) {
+        base64Data = await readFileAsBase64(file)
+      } else {
+        base64Data = await resizeImage(file)
+        mimeType = 'image/jpeg'
+      }
+      const result = await analyzeImageNote(base64Data, mimeType, categories)
+      setTranscript(result.extractedText || '')
+      setImageClassification({ section: result.section, tags: result.tags, actions: result.actions })
+    } catch {
+      setTranscript('')
+    } finally {
+      setAnalyzing(false)
+    }
+  }
 
   async function handleSave() {
     const text = transcript.trim()
@@ -39,7 +112,6 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
     setProcessing(true)
 
     try {
-      // Category commands
       const catCmd = parseCategoryCommand(text)
       if (catCmd) {
         if (catCmd.type === 'add') await addCategory(catCmd.name)
@@ -48,11 +120,10 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
         setCategories(updated)
         onCategoriesChanged?.()
         setPreview({ type: 'category', action: catCmd.type === 'add' ? 'added' : 'deleted', name: catCmd.name })
-        setTimeout(() => { setPreview(null); reset() }, 2500)
+        setTimeout(() => { setPreview(null); handleReset() }, 2500)
         return
       }
 
-      // List commands
       const listCmd = parseListCommand(text)
       if (listCmd) {
         if (listCmd.type === 'create') {
@@ -70,16 +141,18 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
           onListsChanged?.()
           setPreview({ type: 'list', action: 'addedItem', item: listCmd.item, name: listCmd.listName })
         }
-        setTimeout(() => { setPreview(null); reset() }, 2500)
+        setTimeout(() => { setPreview(null); handleReset() }, 2500)
         return
       }
 
-      // Regular note
-      let classification = { section: categories[0] || 'todo', tags: [], actions: [] }
-      try {
-        classification = await classifyNote(text, categories)
-      } catch {
-        // save without classification if offline
+      // Use pre-computed image classification if available, otherwise call Claude
+      let classification = imageClassification || { section: categories[0] || 'todo', tags: [], actions: [] }
+      if (!imageClassification) {
+        try {
+          classification = await classifyNote(text, categories)
+        } catch {
+          // save without classification if offline
+        }
       }
 
       const noteId = await saveNote({
@@ -98,7 +171,7 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
       }
 
       setPreview({ type: 'note', ...classification })
-      setTimeout(() => { setPreview(null); reset(); onNoteSaved?.() }, 2500)
+      setTimeout(() => { setPreview(null); handleReset(); onNoteSaved?.() }, 2500)
     } finally {
       setProcessing(false)
     }
@@ -142,7 +215,7 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
       <button
         style={{ ...styles.micBtn, background: listening ? '#e74c3c' : '#4f9cf9' }}
         onClick={listening ? stop : start}
-        disabled={!supported || processing}
+        disabled={!supported || processing || analyzing}
       >
         {listening ? '◉' : '🎤'}
       </button>
@@ -151,11 +224,55 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
          listening ? 'Tap to stop' :
          'Tap to record'}
       </div>
+
+      <div style={styles.captureRow}>
+        <button
+          style={styles.captureBtn}
+          onClick={() => cameraInputRef.current?.click()}
+          disabled={processing || analyzing || listening}
+        >
+          📷 Camera
+        </button>
+        <button
+          style={styles.captureBtn}
+          onClick={() => uploadInputRef.current?.click()}
+          disabled={processing || analyzing || listening}
+        >
+          📎 Upload
+        </button>
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          style={{ display: 'none' }}
+          onChange={e => handleFileSelected(e.target.files[0], e.target)}
+        />
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept="image/*,.pdf,application/pdf"
+          style={{ display: 'none' }}
+          onChange={e => handleFileSelected(e.target.files[0], e.target)}
+        />
+      </div>
+
       <div style={styles.tip}>
         "add car category" · "start grocery list" · "add milk to grocery list"
       </div>
 
-      {transcript && (
+      {imagePreview && (
+        <div style={styles.imagePrev}>
+          {imagePreview.isPdf ? (
+            <div style={styles.pdfBadge}>📄 {imagePreview.name}</div>
+          ) : (
+            <img src={imagePreview.url} alt="captured notes" style={styles.thumbImg} />
+          )}
+          {analyzing && <div style={styles.analyzeHint}>Analysing…</div>}
+        </div>
+      )}
+
+      {transcript && !analyzing && (
         <div style={styles.transcriptBox}>
           <textarea
             style={styles.textarea}
@@ -164,7 +281,7 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
             rows={4}
           />
           <div style={styles.btnRow}>
-            <button style={styles.clearBtn} onClick={reset}>Clear</button>
+            <button style={styles.clearBtn} onClick={handleReset}>Clear</button>
             <button style={styles.saveBtn} onClick={handleSave} disabled={processing}>
               {processing ? 'Saving…' : 'Save'}
             </button>
@@ -181,7 +298,13 @@ const styles = {
   container: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '32px 16px' },
   micBtn: { width: 100, height: 100, borderRadius: '50%', border: 'none', fontSize: 40, cursor: 'pointer', color: '#fff', transition: 'background 0.2s', userSelect: 'none', WebkitUserSelect: 'none' },
   hint: { color: '#aaa', fontSize: 14 },
+  captureRow: { display: 'flex', gap: 10 },
+  captureBtn: { padding: '8px 16px', borderRadius: 20, border: '1px solid #444', background: 'transparent', color: '#ccc', fontSize: 13, cursor: 'pointer' },
   tip: { color: '#555', fontSize: 12, textAlign: 'center' },
+  imagePrev: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 },
+  thumbImg: { maxWidth: 220, maxHeight: 160, borderRadius: 10, objectFit: 'cover', border: '1px solid #333' },
+  pdfBadge: { padding: '10px 16px', borderRadius: 10, background: '#1e1e2e', border: '1px solid #333', color: '#ccc', fontSize: 13 },
+  analyzeHint: { color: '#4f9cf9', fontSize: 13 },
   transcriptBox: { width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 8 },
   textarea: { width: '100%', padding: 12, borderRadius: 10, border: '1px solid #333', background: '#1e1e2e', color: '#eee', fontSize: 15, resize: 'vertical', boxSizing: 'border-box' },
   btnRow: { display: 'flex', gap: 8, justifyContent: 'flex-end' },
