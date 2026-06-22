@@ -60,6 +60,7 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
   const [imagePreview, setImagePreview] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [imageClassification, setImageClassification] = useState(null)
+  const [typing, setTyping] = useState(false)
   const cameraInputRef = useRef(null)
   const uploadInputRef = useRef(null)
 
@@ -76,6 +77,7 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
   function handleReset() {
     clearImage()
     reset()
+    setTyping(false)
   }
 
   async function handleFileSelected(file, inputEl) {
@@ -240,6 +242,13 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
         >
           📎 Upload
         </button>
+        <button
+          style={styles.captureBtn}
+          onClick={() => setTyping(true)}
+          disabled={processing || analyzing || listening || typing || !!transcript}
+        >
+          ✏️ Type
+        </button>
         <input
           ref={cameraInputRef}
           type="file"
@@ -272,7 +281,7 @@ export default function VoiceInput({ onNoteSaved, onCategoriesChanged, onListsCh
         </div>
       )}
 
-      {transcript && !analyzing && (
+      {(transcript || typing) && !analyzing && (
         <div style={styles.transcriptBox}>
           <textarea
             style={styles.textarea}
