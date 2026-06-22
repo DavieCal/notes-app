@@ -78,6 +78,38 @@ Extract ALL visible text faithfully. Preserve list structure in extractedText. P
   }
 }
 
+export async function analyseBrainDump(text, categories) {
+  const system = `You are a personal assistant. The user has done a brain dump — a free-form stream of thoughts, tasks, worries, ideas, and goals all mixed together.
+
+Split it into individual items. Return ONLY a valid JSON array (no markdown, no explanation):
+[
+  {
+    "content": "cleaned up item text",
+    "type": "action" | "goal" | "thought" | "question",
+    "section": one of ${JSON.stringify(categories)},
+    "tags": ["short", "keywords"],
+    "timeframe": "immediate" | "short_term" | "long_term" | null
+  }
+]
+
+Rules:
+- immediate = today or tomorrow; short_term = this week or month; long_term = 1+ months or ongoing; null = no clear timeframe
+- action = something to do; goal = something to achieve over time; thought = observation/idea/feeling; question = something to research or decide
+- Merge closely related fragments into one item
+- Fix typos, clean up grammar, preserve meaning
+- timeframe null is fine for thoughts and questions with no deadline`
+
+  const raw = await callClaude([{ role: 'user', content: text }], system, 2048)
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    const match = raw.match(/\[[\s\S]*\]/)
+    if (match) return JSON.parse(match[0])
+    return []
+  }
+}
+
 export async function generateReport({ notes, section, periodLabel }) {
   const notesText = notes.map(n =>
     `[${new Date(n.createdAt).toLocaleDateString()}] ${n.content}`

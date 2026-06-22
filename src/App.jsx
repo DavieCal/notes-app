@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import VoiceInput from './components/VoiceInput'
+import BrainDumpView from './components/BrainDumpView'
 import SectionView from './components/SectionView'
 import ActionsView from './components/ActionsView'
 import ReportView from './components/ReportView'
@@ -9,10 +10,10 @@ import NotepadIcon from './components/icons/NotepadIcon'
 
 const TABS = [
   { id: 'capture', label: '🎤',         title: 'Capture' },
+  { id: 'dump',    label: '🧠',         title: 'Dump' },
   { id: 'notes',   icon: NotepadIcon,   title: 'Notes' },
   { id: 'lists',   label: '☑',          title: 'Lists' },
   { id: 'actions', label: '✓',          title: 'Actions' },
-  { id: 'reports', label: '📊',         title: 'Reports' },
   { id: 'settings',label: '⚙',         title: 'Settings' },
 ]
 
@@ -30,10 +31,10 @@ export default function App() {
 
       <main style={styles.main}>
         {tab === 'capture' && <VoiceInput onNoteSaved={bump} onCategoriesChanged={bump} onListsChanged={bump} />}
+        {tab === 'dump' && <BrainDumpView onSaved={bump} />}
         {tab === 'notes' && <SectionView refreshKey={refreshKey} />}
         {tab === 'lists' && <ListView refreshKey={refreshKey} />}
         {tab === 'actions' && <ActionsView key={refreshKey} />}
-        {tab === 'reports' && <ReportView />}
         {tab === 'settings' && <SettingsView />}
       </main>
 
